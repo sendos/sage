@@ -10,15 +10,23 @@
  * always reference jQuery with $, even when in .noConflict() mode.
  * ======================================================================== */
 
+
+import Sage from './sage';
+import routes from './routes';
+
 (function($) {
 
   // Use this variable to set up the common and page specific functions. If you
   // rename this variable, you will also need to rename the namespace below.
-  var Sage = {
+  var Pages = {
     // All pages
     'common': {
       init: function() {
         // JavaScript to be fired on all pages
+        new Sage({
+          routes: routes,
+          silent: true
+        });
       },
       finalize: function() {
         // JavaScript to be fired on all pages, after page specific JS is fired
@@ -40,13 +48,12 @@
       }
     }
   };
-
   // The routing fires all common scripts, followed by the page specific scripts.
   // Add additional events for more control over timing e.g. a finalize event
   var UTIL = {
     fire: function(func, funcname, args) {
       var fire;
-      var namespace = Sage;
+      var namespace = Pages;
       funcname = (funcname === undefined) ? 'init' : funcname;
       fire = func !== '';
       fire = fire && namespace[func];
@@ -75,3 +82,4 @@
   $(document).ready(UTIL.loadEvents);
 
 })(jQuery); // Fully reference jQuery after this point.
+

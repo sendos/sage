@@ -1,23 +1,32 @@
 // ## Globals
 var argv         = require('minimist')(process.argv.slice(2));
 var autoprefixer = require('gulp-autoprefixer');
+var babelify     = require('babelify');
+var browserify   = require('browserify');
 var browserSync  = require('browser-sync').create();
+var buffer       = require('vinyl-buffer');
 var changed      = require('gulp-changed');
 var concat       = require('gulp-concat');
+var cssNano      = require('gulp-cssnano');
 var flatten      = require('gulp-flatten');
+var globby       = require('globby');
 var gulp         = require('gulp');
 var gulpif       = require('gulp-if');
+var hoganify     = require('hoganify');
 var imagemin     = require('gulp-imagemin');
+var insert       = require('gulp-insert');
 var jshint       = require('gulp-jshint');
 var lazypipe     = require('lazypipe');
 var less         = require('gulp-less');
 var merge        = require('merge-stream');
-var cssNano      = require('gulp-cssnano');
 var plumber      = require('gulp-plumber');
 var rev          = require('gulp-rev');
 var runSequence  = require('run-sequence');
 var sass         = require('gulp-sass');
+var source       = require('vinyl-source-stream');
 var sourcemaps   = require('gulp-sourcemaps');
+var through      = require('through2');
+var transform    = require('vinyl-transform');
 var uglify       = require('gulp-uglify');
 
 // See https://github.com/austinpray/asset-builder
@@ -131,6 +140,7 @@ var jsTasks = function(filename) {
     })
     .pipe(concat, filename)
     .pipe(uglify, {
+      mangle: !enabled.maps,
       compress: {
         'drop_debugger': enabled.stripJSDebug
       }
@@ -188,11 +198,38 @@ gulp.task('styles', ['wiredep'], function() {
 // and project JS.
 gulp.task('scripts', ['jshint'], function() {
   var merged = merge();
+  // Bundle main.js with browserify.
+  var main = manifest.getDependencyByName('main.js');
+  var bundleStream = through();
+  merged.add(
+    bundleStream
+      .pipe(source(main.name))
+      .pipe(buffer())
+      .pipe(jsTasks(main.name))
+  );
+  globby(['./templates/*.mustache']).then(function(entries) {
+    browserify({
+      entries: entries.concat(main.globs),
+    })
+      .require('./assets/scripts/controllers/sage_controller.js', {
+        expose: 'controllers/sage_controller'
+      })
+      .transform(hoganify)
+      .transform(babelify, {
+          presets: 'es2015'
+      })
+      .bundle()
+      .pipe(bundleStream);
+  });
+
+  // Use default js tasks for the rest.
   manifest.forEachDependency('js', function(dep) {
-    merged.add(
-      gulp.src(dep.globs, {base: 'scripts'})
-        .pipe(jsTasks(dep.name))
-    );
+    if (dep.name !== 'main.js') {
+      merged.add(
+        gulp.src(dep.globs, {base: 'scripts'})
+          .pipe(jsTasks(dep.name))
+      );
+    }
   });
   return merged
     .pipe(writeToManifest('scripts'));
@@ -244,7 +281,7 @@ gulp.task('clean', require('del').bind(null, [path.dist]));
 // See: http://www.browsersync.io
 gulp.task('watch', function() {
   browserSync.init({
-    files: ['{lib,templates}/**/*.php', '*.php'],
+    files: ['{lib,templates}/**/*.php', '*.php', 'templates/*.mustache'],
     proxy: config.devUrl,
     snippetOptions: {
       whitelist: ['/wp-admin/admin-ajax.php'],
